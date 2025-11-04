@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>German Learning Cards</title>
+
+    <!-- Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+
+    <style>
+        /* Flip card animation styles */
+        .card-container {
+            perspective: 1000px;
+        }
+
+        .card {
+            position: relative;
+            width: 100%;
+            height: 400px;
+            transition: transform 0.6s;
+            transform-style: preserve-3d;
+        }
+
+        .card.flipped {
+            transform: rotateY(180deg);
+        }
+
+        .card-face {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 1rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .card-front {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .card-back {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            transform: rotateY(180deg);
+        }
+
+        .card-content {
+            font-size: 2.5rem;
+            font-weight: bold;
+            text-align: center;
+            padding: 2rem;
+        }
+
+        @media (max-width: 640px) {
+            .card {
+                height: 300px;
+            }
+            .card-content {
+                font-size: 1.75rem;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-2xl">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-800 mb-2">German Learning Cards</h1>
+            <p class="text-gray-600">See the translation, guess the German word, then flip to check!</p>
+        </div>
+
+        <!-- Card Container -->
+        <div id="card-wrapper" class="card-container mb-6">
+            <div id="learning-card" class="card" onclick="handleCardClick()">
+                <div class="card-face card-front">
+                    <div class="card-content" id="translation-text">
+                        Loading...
+                    </div>
+                </div>
+                <div class="card-face card-back">
+                    <div class="card-content" id="german-text">
+                        German
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Thumbs Up/Down Buttons (shown after revealing) -->
+        <div id="feedback-buttons" class="flex gap-4 justify-center mb-6" style="display: none;">
+            <button
+                onclick="recordAnswer(true)"
+                class="bg-green-600 hover:bg-green-700 text-white font-semibold py-4 px-8 rounded-lg shadow-md transition duration-200 flex items-center gap-2 text-xl">
+                <span class="text-3xl">👍</span> Got it right!
+            </button>
+            <button
+                onclick="recordAnswer(false)"
+                class="bg-red-600 hover:bg-red-700 text-white font-semibold py-4 px-8 rounded-lg shadow-md transition duration-200 flex items-center gap-2 text-xl">
+                <span class="text-3xl">👎</span> Got it wrong
+            </button>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="flex gap-4 justify-center">
+            <button
+                onclick="skipCard()"
+                class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-200">
+                Skip Card
+            </button>
+            <button
+                onclick="reloadCards()"
+                class="bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-200">
+                Reload Deck
+            </button>
+        </div>
+
+        <!-- Status Message -->
+        <div id="status-message" class="text-center mt-6 text-sm text-gray-600"></div>
+    </div>
+
+    <script>
+        // State management
+        let isFlipped = false;
+        let canFlip = true;
+        let currentCard = null;
+
+        // Load initial card on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            loadNewCard();
+        });
+
+        // Handle card click - flip to reveal German
+        function handleCardClick() {
+            if (!canFlip || !currentCard) return;
+
+            const card = document.getElementById('learning-card');
+            const feedbackButtons = document.getElementById('feedback-buttons');
+
+            if (!isFlipped) {
+                // First click: flip to show German answer
+                card.classList.add('flipped');
+                isFlipped = true;
+                // Show thumbs up/down buttons
+                feedbackButtons.style.display = 'flex';
+            }
+        }
+
+        // Fetch and display a new card
+        async function loadNewCard() {
+            canFlip = false;
+            const card = document.getElementById('learning-card');
+            const germanText = document.getElementById('german-text');
+            const translationText = document.getElementById('translation-text');
+            const feedbackButtons = document.getElementById('feedback-buttons');
+
+            // Reset flip state and hide feedback buttons
+            card.classList.remove('flipped');
+            isFlipped = false;
+            feedbackButtons.style.display = 'none';
+
+            // Show loading state
+            germanText.textContent = 'Loading...';
+            translationText.textContent = 'Loading...';
+
+            try {
+                const response = await fetch('/card');
+                if (!response.ok) {
+                    throw new Error('Failed to fetch card');
+                }
+
+                const data = await response.json();
+                currentCard = data;
+
+                // Update card content (swapped: translation on front, German on back)
+                translationText.textContent = data.translation;
+                germanText.textContent = data.german;
+
+                // Re-enable flipping
+                canFlip = true;
+
+            } catch (error) {
+                germanText.textContent = 'Error loading card';
+                translationText.textContent = 'Please try again';
+                showStatus('Error: ' + error.message, 'error');
+                canFlip = true;
+                currentCard = null;
+            }
+        }
+
+        // Skip card without recording answer
+        function skipCard() {
+            loadNewCard();
+        }
+
+        // Record answer and load next card
+        async function recordAnswer(correct) {
+            if (!currentCard) return;
+
+            try {
+                const response = await fetch('/attempt', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        card_id: currentCard.id,
+                        correct: correct
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to record answer');
+                }
+
+                // Show feedback
+                const message = correct ? '✓ Correct! Great job!' : '✗ Keep practicing!';
+                showStatus(message, correct ? 'success' : 'info');
+
+                // Load next card after short delay
+                setTimeout(() => {
+                    loadNewCard();
+                }, 800);
+
+            } catch (error) {
+                showStatus('Error recording answer: ' + error.message, 'error');
+            }
+        }
+
+        // Reload cards from Google Sheets
+        async function reloadCards() {
+            showStatus('Reloading cards from Google Sheets...', 'info');
+
+            try {
+                const response = await fetch('/cards/reload', {
+                    method: 'POST'
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to reload cards');
+                }
+
+                const data = await response.json();
+                showStatus(data.message, 'success');
+
+                // Load a new card after reload
+                setTimeout(() => {
+                    loadNewCard();
+                }, 1000);
+
+            } catch (error) {
+                showStatus('Error: ' + error.message, 'error');
+            }
+        }
+
+        // Show status messages
+        function showStatus(message, type = 'info') {
+            const statusElement = document.getElementById('status-message');
+            statusElement.textContent = message;
+
+            // Color based on type
+            if (type === 'error') {
+                statusElement.className = 'text-center mt-6 text-sm text-red-600 font-medium';
+            } else if (type === 'success') {
+                statusElement.className = 'text-center mt-6 text-sm text-green-600 font-medium';
+            } else {
+                statusElement.className = 'text-center mt-6 text-sm text-gray-600';
+            }
+
+            // Clear after 3 seconds
+            setTimeout(() => {
+                statusElement.textContent = '';
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
