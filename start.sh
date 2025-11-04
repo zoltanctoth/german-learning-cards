@@ -7,6 +7,9 @@ set -e
 
 echo "Starting German Learning Cards application..."
 
+# Clear any conflicting VIRTUAL_ENV variable
+unset VIRTUAL_ENV
+
 # Install dependencies if needed (render.com does this automatically, but good to have)
 if [ ! -d ".venv" ]; then
     echo "Installing dependencies..."
@@ -17,7 +20,7 @@ fi
 # - host 0.0.0.0 allows external connections
 # - port ${PORT:-8000} uses PORT env var if set, otherwise defaults to 8000
 # - workers 4 for production (adjust based on your render.com instance size)
-exec uvicorn main:app \
+exec uv run python -m uvicorn main:app \
     --host 0.0.0.0 \
     --port ${PORT:-8000} \
     --workers 4

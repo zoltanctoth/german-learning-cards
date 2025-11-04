@@ -6,6 +6,9 @@ set -e
 
 echo "Starting German Learning Cards (simple mode)..."
 
-exec uvicorn main:app \
+# Clear any conflicting VIRTUAL_ENV variable
+unset VIRTUAL_ENV
+
+exec uv run python -m uvicorn main:app \
     --host 0.0.0.0 \
     --port ${PORT:-8000}
