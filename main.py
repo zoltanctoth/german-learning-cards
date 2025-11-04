@@ -112,15 +112,21 @@ def get_google_sheet_data() -> list[Dict[str, str]]:
         raise ValueError("Spreadsheet must have at least a header row and one data row")
 
     # Skip header row (first row)
-    # Expected columns: id, german, translation
+    # Expected columns: id, Fertig?, Deutsch, Bedeutung, Kategorie
+    # Column indices: 0=id, 1=Fertig?, 2=Deutsch, 3=Bedeutung, 4=Kategorie
     cards = []
     for row in all_values[1:]:
-        if len(row) >= 3 and row[0].strip() and row[1].strip() and row[2].strip():
-            cards.append({
+        # Check we have at least 4 columns and required fields are not empty
+        if len(row) >= 4 and row[0].strip() and row[2].strip() and row[3].strip():
+            card = {
                 "id": row[0].strip(),
-                "german": row[1].strip(),
-                "translation": row[2].strip()
-            })
+                "german": row[2].strip(),  # Deutsch column
+                "translation": row[3].strip()  # Bedeutung column
+            }
+            # Add category if available (optional field)
+            if len(row) >= 5 and row[4].strip():
+                card["category"] = row[4].strip()
+            cards.append(card)
 
     return cards
 
