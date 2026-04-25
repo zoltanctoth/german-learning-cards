@@ -1,45 +1,41 @@
+import csv
 import os
 import random
-import csv
 import sqlite3
+from contextlib import asynccontextmanager
 from datetime import datetime
 from io import StringIO
-from typing import Dict, Optional
+from typing import Dict
+
+import requests
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from dotenv import load_dotenv
-import requests
 
-# Load environment variables
 load_dotenv()
 
-app = FastAPI(title="German Learning Cards API")
-
-# Mount static files and templates
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
-
-# Global cache for cards
-_cards_cache = None
-
-# Database file
 DB_FILE = "learning_progress.db"
 
+# Sheet column headers. Changing the sheet's column names requires updating these.
+COL_ID = "id"
+COL_GERMAN = "Deutsch"
+COL_TRANSLATION = "Bedeutung"
+COL_CATEGORY = "Kategorie"
 
-# Pydantic models for request validation
+_cards_cache: list[Dict[str, str]] | None = None
+
+
 class CardAttempt(BaseModel):
     card_id: str
     correct: bool
 
 
 def init_database():
-    """Initialize SQLite database with card_attempts table."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS card_attempts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -48,179 +44,130 @@ def init_database():
             correct BOOLEAN NOT NULL
         )
     """)
-
-    # Create index for faster queries
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_card_id
-        ON card_attempts(card_id)
-    """)
-
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_card_id ON card_attempts(card_id)")
     conn.commit()
     conn.close()
 
 
 def save_card_attempt(card_id: str, correct: bool):
-    """Save a card attempt to the database."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-
-    cursor.execute("""
-        INSERT INTO card_attempts (card_id, timestamp, correct)
-        VALUES (?, ?, ?)
-    """, (card_id, datetime.now().isoformat(), correct))
-
+    cursor.execute(
+        "INSERT INTO card_attempts (card_id, timestamp, correct) VALUES (?, ?, ?)",
+        (card_id, datetime.now().isoformat(), correct),
+    )
     conn.commit()
     conn.close()
 
 
 def get_google_sheet_data() -> list[Dict[str, str]]:
-    """
-    Fetch data from Google Sheets and return as a list of card dictionaries.
-    Works with public Google Sheets (anyone with the link can view).
-    """
+    """Fetch the public sheet as CSV and parse it into card dicts."""
     spreadsheet_url = os.getenv("GOOGLE_SHEET_URL")
-
     if not spreadsheet_url:
         raise ValueError("GOOGLE_SHEET_URL environment variable is not set")
 
-    # Extract spreadsheet ID from URL
-    if "/d/" in spreadsheet_url:
-        sheet_id = spreadsheet_url.split("/d/")[1].split("/")[0]
-    else:
+    if "/d/" not in spreadsheet_url:
         raise ValueError("Invalid Google Sheets URL format")
+    sheet_id = spreadsheet_url.split("/d/")[1].split("/")[0]
 
-    # Use Google Sheets CSV export for public sheets (simplest approach)
+    csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
     try:
-        # Export as CSV is the simplest way to access public sheets
-        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
-
         response = requests.get(csv_url)
         response.raise_for_status()
-
-        # Ensure proper UTF-8 encoding
-        response.encoding = 'utf-8'
-
-        # Parse CSV data
-        csv_data = StringIO(response.text)
-        reader = csv.reader(csv_data)
-        all_values = list(reader)
-
+        response.encoding = "utf-8"
     except Exception as e:
-        raise ValueError(f"Failed to fetch Google Sheet data: {str(e)}")
+        raise ValueError(f"Failed to fetch Google Sheet data: {e}")
 
-    if len(all_values) < 2:
+    reader = csv.DictReader(StringIO(response.text))
+    if reader.fieldnames is None:
         raise ValueError("Spreadsheet must have at least a header row and one data row")
 
-    # Skip header row (first row)
-    # Expected columns: id, Fertig?, Deutsch, Bedeutung, Kategorie
-    # Column indices: 0=id, 1=Fertig?, 2=Deutsch, 3=Bedeutung, 4=Kategorie
-    cards = []
-    for row in all_values[1:]:
-        # Check we have at least 4 columns and required fields are not empty
-        if len(row) >= 4 and row[0].strip() and row[2].strip() and row[3].strip():
-            card = {
-                "id": row[0].strip(),
-                "german": row[2].strip(),  # Deutsch column
-                "translation": row[3].strip()  # Bedeutung column
-            }
-            # Add category if available (optional field)
-            if len(row) >= 5 and row[4].strip():
-                card["category"] = row[4].strip()
-            cards.append(card)
+    cards: list[Dict[str, str]] = []
+    for row in reader:
+        card_id = (row.get(COL_ID) or "").strip()
+        german = (row.get(COL_GERMAN) or "").strip()
+        translation = (row.get(COL_TRANSLATION) or "").strip()
+        if not (card_id and german and translation):
+            continue
+        card = {"id": card_id, "german": german, "translation": translation}
+        category = (row.get(COL_CATEGORY) or "").strip()
+        if category:
+            card["category"] = category
+        cards.append(card)
 
+    if not cards:
+        raise ValueError("Spreadsheet must have at least a header row and one data row")
     return cards
 
 
 def get_cards() -> list[Dict[str, str]]:
-    """
-    Get cards from cache or fetch from Google Sheets if cache is empty.
-    """
     global _cards_cache
-
     if _cards_cache is None:
         _cards_cache = get_google_sheet_data()
-
     return _cards_cache
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database on startup."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     init_database()
+    yield
+
+
+app = FastAPI(title="German Learning Cards API", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
 
 
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
-    """Serve the main HTML page."""
     return templates.TemplateResponse(request, "index.html")
 
 
 @app.get("/api")
 async def api_info():
-    """API endpoint with information."""
     return {
         "message": "German Learning Cards API",
         "endpoints": {
             "/card": "Get a random learning card",
-            "/cards/reload": "Reload cards from Google Sheets"
-        }
+            "/cards/reload": "Reload cards from Google Sheets",
+            "/attempt": "Record a card attempt (POST)",
+        },
     }
 
 
 @app.get("/card")
 async def get_random_card() -> Dict[str, str]:
-    """
-    Get a random learning card from the Google Spreadsheet.
-
-    Returns:
-        A dictionary with 'german' and 'translation' keys
-    """
     try:
         cards = get_cards()
-
         if not cards:
             raise HTTPException(status_code=404, detail="No cards available")
-
-        # Return a random card
         return random.choice(cards)
-
     except ValueError as e:
         raise HTTPException(status_code=500, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching card: {str(e)}")
 
 
 @app.post("/cards/reload")
 async def reload_cards():
-    """
-    Reload cards from Google Sheets (clear cache).
-    """
     global _cards_cache
     _cards_cache = None
-
     try:
         cards = get_cards()
         return {"message": f"Successfully reloaded {len(cards)} cards"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error reloading cards: {str(e)}")
+    except ValueError as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/attempt")
 async def record_attempt(attempt: CardAttempt):
-    """
-    Record a card attempt (whether user got it right or wrong).
-    """
-    try:
-        save_card_attempt(attempt.card_id, attempt.correct)
-        return {
-            "message": "Attempt recorded successfully",
-            "card_id": attempt.card_id,
-            "correct": attempt.correct
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error recording attempt: {str(e)}")
+    save_card_attempt(attempt.card_id, attempt.correct)
+    return {
+        "message": "Attempt recorded successfully",
+        "card_id": attempt.card_id,
+        "correct": attempt.correct,
+    }
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

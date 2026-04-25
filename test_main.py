@@ -26,10 +26,10 @@ def mock_env_var(monkeypatch):
 @pytest.fixture
 def mock_google_sheets():
     """Mock Google Sheets CSV export calls."""
-    csv_data = """id,German,Translation
-1,Hallo,Hello
-2,Danke,Thank you
-3,Guten Tag,Good day"""
+    csv_data = """id,Fertig?,Deutsch,Bedeutung,Kategorie
+1,,Hallo,Hello,
+2,,Danke,Thank you,
+3,,Guten Tag,Good day,"""
 
     with patch("requests.get") as mock_get:
         mock_response = MagicMock()
@@ -181,11 +181,11 @@ def test_reload_cards_endpoint(mock_env_var, mock_google_sheets):
 
 def test_get_google_sheet_data_empty_rows(mock_env_var):
     """Test that empty rows are skipped."""
-    csv_data = """id,German,Translation
-1,Hallo,Hello
-2,,
-3,Danke,Thank you
-4,   ,   """
+    csv_data = """id,Fertig?,Deutsch,Bedeutung,Kategorie
+1,,Hallo,Hello,
+2,,,,
+3,,Danke,Thank you,
+4,,   ,   ,"""
 
     with patch("requests.get") as mock_get:
         mock_response = MagicMock()
@@ -204,7 +204,7 @@ def test_get_google_sheet_data_empty_rows(mock_env_var):
 
 def test_get_google_sheet_data_no_data_rows(mock_env_var):
     """Test error when spreadsheet has only header row."""
-    csv_data = """id,German,Translation"""
+    csv_data = """id,Fertig?,Deutsch,Bedeutung,Kategorie"""
 
     with patch("requests.get") as mock_get:
         mock_response = MagicMock()
