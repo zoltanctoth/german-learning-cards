@@ -13,7 +13,6 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from prometheus_client import Counter
 from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 
@@ -122,9 +121,6 @@ templates = Jinja2Templates(directory="templates")
 # Default HTTP metrics (request count, latency histogram, in-progress) at /metrics.
 Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
-# TODO(business-metrics): define custom flashcard metrics here.
-# See record_attempt() below for where these get incremented.
-
 
 @app.get("/healthz", include_in_schema=False)
 async def healthz():
@@ -173,7 +169,6 @@ async def reload_cards():
 @app.post("/attempt")
 async def record_attempt(attempt: CardAttempt):
     save_card_attempt(attempt.card_id, attempt.correct)
-    # TODO(business-metrics): increment your custom Prometheus counter(s) here.
     return {
         "message": "Attempt recorded successfully",
         "card_id": attempt.card_id,

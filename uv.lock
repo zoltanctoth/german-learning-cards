@@ -116,7 +116,6 @@ source = { virtual = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "jinja2" },
-    { name = "prometheus-client" },
     { name = "prometheus-fastapi-instrumentator" },
     { name = "python-dotenv" },
     { name = "requests" },
@@ -133,7 +132,6 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.119.0" },
     { name = "jinja2", specifier = ">=3.1.6" },
-    { name = "prometheus-client", specifier = ">=0.21.0" },
     { name = "prometheus-fastapi-instrumentator", specifier = ">=7.0.0" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
     { name = "requests", specifier = ">=2.32.5" },
